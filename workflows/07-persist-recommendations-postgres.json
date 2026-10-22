@@ -1,0 +1,149 @@
+{
+  "updatedAt": "2026-10-22T12:50:46.000Z",
+  "createdAt": "2026-10-18T17:02:22.262Z",
+  "id": "hqmkMSIzximxZYL5",
+  "name": "BAIT LAB 07 - Persist Job Recommendations",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "75ba28c3-84e7-4575-acf2-d80fa66430d5",
+      "name": "Called with Ranked Jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nif (result.allSynthetic !== true || !result.candidate?.id || !Array.isArray(result.top3)) {\n  throw new Error('Expected a synthetic candidate-to-jobs shortlist from the matching engine.');\n}\nif (result.top3.length === 0) {\n  throw new Error('No jobs to store. Main workflow should handle empty shortlist before invoking persistence.');\n}\nreturn result.top3.map(job => ({ json: {\n  recordKey: `${result.candidate.id}::${job.id}`,\n  candidateId: String(result.candidate.id),\n  jobId: String(job.id),\n  candidateName: String(result.candidate.name || ''),\n  jobTitle: String(job.title || ''),\n  company: String(job.company || ''),\n  score: Number(job.score || 0),\n  reason: String(job.reason || ''),\n  lastChecked: new Date().toISOString()\n}}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        0
+      ],
+      "id": "4d926d95-4382-4061-b5f6-7c995a992eef",
+      "name": "Prepare 3 Persistent Records"
+    },
+    {
+      "id": "5be92b6a-2942-48f8-aff4-a218cb018094",
+      "name": "Upsert into Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        576,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "postgres": {
+          "id": "baitPostgres0001",
+          "name": "BAIT Project Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Idempotent save: one row per candidate+job (record_key is the primary key).\n-- Saving the same match again updates the row instead of duplicating it,\n-- and RETURNING reads back what earlier runs stored (times_saved, first_saved).\nINSERT INTO bait_recommendations\n  (record_key, candidate_id, candidate_name, job_id, job_title, company, score, reason, last_checked)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())\nON CONFLICT (record_key) DO UPDATE SET\n  candidate_name = EXCLUDED.candidate_name,\n  job_title      = EXCLUDED.job_title,\n  company        = EXCLUDED.company,\n  score          = EXCLUDED.score,\n  reason         = EXCLUDED.reason,\n  last_checked   = now(),\n  times_saved    = bait_recommendations.times_saved + 1\nRETURNING record_key, score, times_saved, first_saved, last_checked;",
+        "options": {
+          "queryReplacement": "={{ [$json.recordKey, $json.candidateId, $json.candidateName, $json.jobId, $json.jobTitle, $json.company, $json.score, $json.reason] }}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Passes the ranked jobs back to the caller, plus what Postgres returned:\n// how many rows were upserted and how often / since when this candidate's matches were saved.\nconst original = $('Called with Ranked Jobs').first().json;\nconst rows = $input.all().map(i => i.json);\nconst firstSaved = rows.map(r => new Date(r.first_saved)).sort((a, b) => a - b)[0];\nreturn [{ json: { ...original, persistedRows: rows.length, storage: 'Postgres bait_recommendations',\n  timesSaved: Math.max(...rows.map(r => Number(r.times_saved) || 1)),\n  firstSaved: firstSaved ? firstSaved.toISOString() : null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "9b2839b3-a65d-4b9e-8c5b-a82d3c8d93a2",
+      "name": "Return Original Shortlist"
+    }
+  ],
+  "connections": {
+    "Called with Ranked Jobs": {
+      "main": [
+        [
+          {
+            "node": "Prepare 3 Persistent Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare 3 Persistent Records": {
+      "main": [
+        [
+          {
+            "node": "Upsert into Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert into Postgres": {
+      "main": [
+        [
+          {
+            "node": "Return Original Shortlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "errorWorkflow": "8y9qe5N7C2bieCGO"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "e0692ce3-850e-4001-a69e-4349def771dd",
+  "activeVersionId": "e0692ce3-850e-4001-a69e-4349def771dd",
+  "versionCounter": 30,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-18T17:02:22.266Z",
+      "createdAt": "2026-10-18T17:02:22.266Z",
+      "role": "workflow:owner",
+      "workflowId": "hqmkMSIzximxZYL5",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Persistence v1",
+    "description": ""
+  }
+}

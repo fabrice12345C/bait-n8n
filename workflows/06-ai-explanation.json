@@ -1,0 +1,184 @@
+{
+  "updatedAt": "2026-10-22T12:16:44.541Z",
+  "createdAt": "2026-10-18T18:43:30.373Z",
+  "id": "BFQ6Mp6WXagUlQo6",
+  "name": "BAIT LAB 06 - AI Explanation (requires setup)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "d2f33004-147a-4c46-b11c-4d5368a74e99",
+      "name": "Called by Matching Controller",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const x = $input.first().json;\nif (x.allSynthetic !== true || !Array.isArray(x.top3) || x.top3.length !== 3) {\n  throw new Error('AI explainer expects three synthetic ranked jobs.');\n}\nconst jobs = x.top3.map((j, i) => ({\n  rank: i + 1, title: String(j.title), company: String(j.company),\n  fitScore: Number(j.score), reasonFromMatchingEngine: String(j.reason),\n  matchedSkills: j.matchedSkills || [], missingSkills: j.missingSkills || []\n}));\nconst prompt = [\n  'You are writing a brief, factual internship recommendation explanation for a fictional candidate.',\n  'Return EXACTLY three numbered lines, one per job, in the same order.',\n  'Each line MUST contain the EXACT job title, its EXACT fit score as NN/100, and one specific fit reason grounded in supplied evidence.',\n  'For the third job, explicitly acknowledge the experience gap if the data mentions one.',\n  'Example FORMAT only: 1. Job Title — 85/100: Matches Excel and SQL; 1 year experience versus 2 requested.',\n  'Do not create qualifications, change scores, promise hiring, or mention sensitive traits.',\n  'Do NOT print a safety rating, internal analysis, preamble, disclaimer or generic label.',\n  'Write 3 short, informative lines of 30-45 words each.',\n  'INPUT DATA (fictional):',\n  JSON.stringify({candidate:x.candidate, jobs})\n].join('\\n');\nreturn [{json:{prompt, expectedJobs:jobs.map(j=>({title:j.title, score:j.fitScore})), allSynthetic:true}}];"
+      },
+      "id": "5c1675a3-c457-4fb4-ab30-c014bd049ec3",
+      "name": "Prepare Grounded AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "batching": {},
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are the explanation layer of BAIT, an internship-matching demo. Scores, rankings and eligibility are decided by deterministic code before you are called; you only explain them. Use ONLY the facts in the INPUT DATA (fictional candidate and jobs). Never change, round or invent a job title, score, skill or requirement. Never promise hiring or mention sensitive personal traits. Output exactly three numbered lines, one per job in the given order, each containing the exact job title and the exact score written as NN/100, plus one concrete reason (matched skills, missing skills or the experience gap). No preamble, no disclaimer, no safety rating."
+            }
+          ]
+        }
+      },
+      "id": "907a5197-7058-40ef-a50e-2f013bd90f30",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        512,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "model": "openrouter/free",
+        "options": {}
+      },
+      "id": "412106c0-31c9-4f78-ab71-48fc71a97309",
+      "name": "OpenRouter Free Model - CONFIGURE",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        512,
+        208
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "id": "B69aVTfFwTK313Uu",
+          "name": "OpenRouter BAIT Valid Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $input.first().json;\nconst expected = $('Prepare Grounded AI Prompt').first().json.expectedJobs;\nconst explanation = String(output.text ?? output.output ?? '').trim();\nif (explanation.length < 130 || explanation.length > 1800 || /User Safety\\s*:/i.test(explanation)) {\n  throw new Error('AI returned an unusable or generic explanation. Use deterministic fallback.');\n}\nfor (const job of expected) {\n  if (!explanation.toLowerCase().includes(job.title.toLowerCase()) ||\n      !explanation.includes(`${job.score}/100`)) {\n    throw new Error(`AI omitted or altered job evidence: ${job.title}. Use deterministic fallback.`);\n  }\n}\nreturn [{json:{message:explanation, source:'AI explanation verified against ranked jobs'}}];"
+      },
+      "id": "19ceeb48-afa5-4353-a118-7297dda2fad6",
+      "name": "Validate AI Explanation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by Matching Controller": {
+      "main": [
+        [
+          {
+            "node": "Prepare Grounded AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Grounded AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Validate AI Explanation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Free Model - CONFIGURE": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "errorWorkflow": "8y9qe5N7C2bieCGO"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "5b3089d3-1ba5-47ee-97d0-cd919d83a3ad",
+  "activeVersionId": "5b3089d3-1ba5-47ee-97d0-cd919d83a3ad",
+  "versionCounter": 23,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-18T18:43:30.377Z",
+      "createdAt": "2026-10-18T18:43:30.377Z",
+      "role": "workflow:owner",
+      "workflowId": "BFQ6Mp6WXagUlQo6",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
