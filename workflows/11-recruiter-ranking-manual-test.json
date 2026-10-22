@@ -1,0 +1,212 @@
+{
+  "updatedAt": "2026-10-22T12:16:44.060Z",
+  "createdAt": "2026-10-21T16:31:22.023Z",
+  "id": "rX372U9q6KEycZYn",
+  "name": "BAIT LAB 11 - Recruiter Ranking Manual Demo",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e730042f-4ece-44ba-80bc-f60500b36b9b",
+      "name": "Manual Recruiter Demonstration",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "8bd0786b-fb68-4ed6-81e3-b16036f29bc4",
+      "name": "Called by Telegram Controller",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Seeds ONE fictional job and TWELVE fictional applicants. No real people, no database access.\n// Recruiter settings (weights + threshold) arrive from the Telegram controller; manual runs use defaults.\nconst input = ($input.first() && $input.first().json) || {};\nconst s = input.settings;\nconst usingDefaults = !s;\nconst weights = (s && s.weights) || { skills: 40, experience: 30, education: 30 };\nconst threshold = (s && Number.isFinite(s.threshold)) ? s.threshold : 70;\nconst job = {\n  id: 'RECRUITER-DEMO-JOB-01',\n  title: 'Junior Software Developer Intern',\n  company: 'Demo Startup (fictional)',\n  minimumEducation: 'Bachelor',\n  minimumExperienceYears: 1,\n  requiredSkills: ['JavaScript', 'React', 'SQL'],\n  weights,\n  threshold\n};\nconst candidates = [\n  { id: 'RC001', name: 'Candidate A (fictional)', education: 'Master', experienceYears: 2, skills: ['JavaScript', 'React', 'SQL'] },\n  { id: 'RC002', name: 'Candidate B (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['JavaScript', 'React'] },\n  { id: 'RC003', name: 'Candidate C (fictional)', education: 'High School', experienceYears: 4, skills: ['JavaScript', 'React', 'SQL'] },\n  { id: 'RC004', name: 'Candidate D (fictional)', education: 'Bachelor', experienceYears: 3, skills: ['JavaScript', 'SQL'] },\n  { id: 'RC005', name: 'Candidate E (fictional)', education: 'Bachelor', experienceYears: 0, skills: ['JavaScript'] },\n  { id: 'RC006', name: 'Candidate F (fictional)', education: 'Master', experienceYears: 1, skills: ['React', 'SQL', 'Python'] },\n  { id: 'RC007', name: 'Candidate G (fictional)', education: 'PhD', experienceYears: 0, skills: ['Python', 'SQL'] },\n  { id: 'RC008', name: 'Candidate H (fictional)', education: 'Bachelor', experienceYears: 2, skills: ['JavaScript', 'React', 'SQL', 'Node.js'] },\n  { id: 'RC009', name: 'Candidate I (fictional)', education: 'Associate', experienceYears: 2, skills: ['JavaScript', 'React'] },\n  { id: 'RC010', name: 'Candidate J (fictional)', education: 'Master', experienceYears: 0, skills: ['JavaScript', 'React', 'SQL'] },\n  { id: 'RC011', name: 'Candidate K (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['React'] },\n  { id: 'RC012', name: 'Candidate L (fictional)', education: 'Bachelor', experienceYears: 5, skills: ['SQL', 'Python'] }\n];\nreturn [{ json: { job, candidates, allSynthetic: true, usingDefaults } }];\n"
+      },
+      "id": "590b931f-c33e-4ce8-9b69-2ae4c9348492",
+      "name": "Seed Fictional Recruiter Job and Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "XHNepdnitiMYhMnh",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/XHNepdnitiMYhMnh",
+          "cachedResultName": "BAIT LAB 10 - Recruiter Candidate Ranking Engine"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job": "={{ $json.job }}",
+            "candidates": "={{ $json.candidates }}",
+            "allSynthetic": "={{ $json.allSynthetic }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job",
+              "displayName": "job",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "candidates",
+              "displayName": "candidates",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            },
+            {
+              "id": "allSynthetic",
+              "displayName": "allSynthetic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "7071e29b-02df-4dd5-b4ce-c836ecd860c4",
+      "name": "Execute Recruiter Engine - SELECT 10",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        512,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Quality gate: every fictional applicant must be scored or excluded exactly once.\n// With default settings, also run a regression check on the known-correct result.\nconst x = $input.first().json;\nconst seed = $('Seed Fictional Recruiter Job and Candidates').first().json;\nif (!x.allSynthetic || !Array.isArray(x.allEvaluations) || !Array.isArray(x.excluded)) {\n  throw new Error('Unexpected recruiter engine output.');\n}\nconst ids = x.allEvaluations.map(c => c.id).concat(x.excluded.map(c => c.id));\nif (new Set(ids).size !== ids.length || ids.length !== seed.candidates.length) {\n  throw new Error('Every candidate must be scored or excluded exactly once.');\n}\nif (seed.usingDefaults && (x.allEvaluations[0].id !== 'RC001' || !x.excluded.some(c => c.id === 'RC003'))) {\n  throw new Error('Default-settings regression check failed.');\n}\nreturn [{ json: { testPassed: true, topThree: (x.shortlist || []).map(c => c.id), scores: (x.shortlist || []).map(c => c.score),\n  excluded: x.excluded, belowThreshold: x.otherEligible, message: x.message,\n  job: x.job, shortlist: x.shortlist, allEvaluations: x.allEvaluations, totalCandidates: x.totalCandidates,\n  scoringMethod: x.scoringMethod, allSynthetic: true, usingDefaults: seed.usingDefaults,\n  settings: { weights: x.weights, threshold: x.threshold },\n  candidateNames: seed.candidates.map(c => ({ id: c.id, name: c.name })) } }];\n"
+      },
+      "id": "02a71bbc-445f-47a5-a48d-28886052cb19",
+      "name": "Check Ranking and Eligibility Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        64
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Recruiter Demonstration": {
+      "main": [
+        [
+          {
+            "node": "Seed Fictional Recruiter Job and Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called by Telegram Controller": {
+      "main": [
+        [
+          {
+            "node": "Seed Fictional Recruiter Job and Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seed Fictional Recruiter Job and Candidates": {
+      "main": [
+        [
+          {
+            "node": "Execute Recruiter Engine - SELECT 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Recruiter Engine - SELECT 10": {
+      "main": [
+        [
+          {
+            "node": "Check Ranking and Eligibility Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "errorWorkflow": "8y9qe5N7C2bieCGO"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "8b447484-b2b9-4091-be08-6e7b6a800bc1",
+  "activeVersionId": "8b447484-b2b9-4091-be08-6e7b6a800bc1",
+  "versionCounter": 6,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-21T16:31:22.027Z",
+      "createdAt": "2026-10-21T16:31:22.027Z",
+      "role": "workflow:owner",
+      "workflowId": "rX372U9q6KEycZYn",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
