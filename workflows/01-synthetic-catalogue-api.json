@@ -1,0 +1,121 @@
+{
+  "updatedAt": "2026-10-22T12:16:45.798Z",
+  "createdAt": "2026-10-17T19:03:17.857Z",
+  "id": "UFHi9gGay7YM3vUj",
+  "name": "01 - Synthetic Catalogue",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bait-demo-catalogue-v1",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c99397dd-d4aa-44f6-92a6-d6a0188f4cd7",
+      "name": "GET /bait-demo-catalogue-v1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "690e6253-7552-492f-92e4-22b6b506ef49"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ONLY FAKE TEST RECORDS. This API intentionally provides no private BAIT information.\n// One shared fictional world: students (personas), internship postings, and applicant pools\n// for the three postings that are open in the recruiter demo.\nconst personas = [\n  { id: 'alex', candidateId: 'DEMO-CAND-01', name: 'Alex Martin (fictional)', degree: 'Bachelor', field: 'Business Analytics',\n    skills: ['Python', 'SQL', 'Excel', 'Power BI'], experienceYears: 1, location: 'Paris', goal: 'data and BI internships' },\n  { id: 'sam', candidateId: 'DEMO-CAND-02', name: 'Sam Okafor (fictional)', degree: 'Master', field: 'Computer Science',\n    skills: ['JavaScript', 'React', 'SQL', 'Node.js'], experienceYears: 2, location: 'Lyon', goal: 'software development internships' },\n  { id: 'lea', candidateId: 'DEMO-CAND-03', name: 'Léa Dubois (fictional)', degree: 'Bachelor', field: 'Marketing',\n    skills: ['SEO', 'Copywriting', 'Excel', 'Canva'], experienceYears: 1, location: 'Paris', goal: 'marketing internships' }\n];\nconst candidate = { id: 'DEMO-CAND-01', name: 'Alex Martin (fictional)', degree: 'Bachelor',\n  skills: ['Python', 'SQL', 'Excel', 'Power BI'], experienceYears: 1, location: 'Paris', workAuthorization: 'not assessed' };\nconst jobs = [\n {id:'DEMO-JOB-01',title:'Data Analyst Intern',company:'Northstar Analytics (fictional)',location:'Paris',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['Python','SQL','Excel']},\n {id:'DEMO-JOB-02',title:'Business Intelligence Intern',company:'Orion Retail (fictional)',location:'Paris',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['SQL','Power BI','Excel']},\n {id:'DEMO-JOB-03',title:'Operations Analytics Intern',company:'Cedar Logistics (fictional)',location:'Lyon',minimumEducation:'Bachelor',minimumExperienceYears:2,requiredSkills:['Excel','SQL','Python']},\n {id:'DEMO-JOB-04',title:'Machine Learning Research Intern',company:'Meridian Labs (fictional)',location:'Paris',minimumEducation:'Master',minimumExperienceYears:1,requiredSkills:['Python','Machine Learning']},\n {id:'DEMO-JOB-05',title:'Digital Marketing Intern',company:'Harbor Media (fictional)',location:'Paris',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['SEO','Copywriting','Analytics']},\n {id:'DEMO-JOB-06',title:'Junior Data Engineering Intern',company:'Atlas Systems (fictional)',location:'Remote',minimumEducation:'Bachelor',minimumExperienceYears:2,requiredSkills:['Python','SQL','Cloud']},\n {id:'DEMO-JOB-07',title:'Financial Reporting Intern',company:'Bluewave Finance (fictional)',location:'Paris',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['Excel','SQL','Accounting']},\n {id:'DEMO-JOB-08',title:'Product Analyst Intern',company:'Lumen Apps (fictional)',location:'Remote',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['SQL','Python','Tableau']},\n {id:'DEMO-JOB-09',title:'Data Science Intern',company:'Vertex Health (fictional)',location:'Paris',minimumEducation:'Master',minimumExperienceYears:1,requiredSkills:['Python','Statistics']},\n {id:'DEMO-JOB-10',title:'HR Analytics Intern',company:'Peoplefirst Group (fictional)',location:'Lyon',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['Excel','Power BI','Communication']},\n {id:'DEMO-JOB-11',title:'Junior Software Developer Intern',company:'Demo Startup (fictional)',location:'Paris',minimumEducation:'Bachelor',minimumExperienceYears:1,requiredSkills:['JavaScript','React','SQL']},\n {id:'DEMO-JOB-12',title:'Frontend Developer Intern',company:'Pixel Forge (fictional)',location:'Remote',minimumEducation:'Bachelor',minimumExperienceYears:0,requiredSkills:['JavaScript','React','CSS']}\n];\nconst recruiterPostings = ['DEMO-JOB-01', 'DEMO-JOB-11', 'DEMO-JOB-05'];\nconst applicants = {\n  'DEMO-JOB-01': [\n    { id: 'DA01', name: 'Nadia R. (fictional)', education: 'Master', experienceYears: 2, skills: ['Python', 'SQL', 'Excel', 'Tableau'] },\n    { id: 'DA02', name: 'Tom B. (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['SQL', 'Excel'] },\n    { id: 'DA03', name: 'Ines K. (fictional)', education: 'Bachelor', experienceYears: 0, skills: ['Python', 'SQL', 'Excel'] },\n    { id: 'DA04', name: 'Hugo M. (fictional)', education: 'High School', experienceYears: 3, skills: ['Excel', 'SQL'] },\n    { id: 'DA05', name: 'Maya L. (fictional)', education: 'Bachelor', experienceYears: 2, skills: ['Python', 'Excel'] },\n    { id: 'DA06', name: 'Omar S. (fictional)', education: 'PhD', experienceYears: 1, skills: ['Python', 'SQL'] },\n    { id: 'DA07', name: 'Chloé P. (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['Excel'] },\n    { id: 'DA08', name: 'Léo T. (fictional)', education: 'Master', experienceYears: 0, skills: ['Python', 'SQL', 'Excel', 'Power BI'] }\n  ],\n  'DEMO-JOB-11': [\n    { id: 'RC001', name: 'Candidate A (fictional)', education: 'Master', experienceYears: 2, skills: ['JavaScript', 'React', 'SQL'] },\n    { id: 'RC002', name: 'Candidate B (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['JavaScript', 'React'] },\n    { id: 'RC003', name: 'Candidate C (fictional)', education: 'High School', experienceYears: 4, skills: ['JavaScript', 'React', 'SQL'] },\n    { id: 'RC004', name: 'Candidate D (fictional)', education: 'Bachelor', experienceYears: 3, skills: ['JavaScript', 'SQL'] },\n    { id: 'RC005', name: 'Candidate E (fictional)', education: 'Bachelor', experienceYears: 0, skills: ['JavaScript'] },\n    { id: 'RC006', name: 'Candidate F (fictional)', education: 'Master', experienceYears: 1, skills: ['React', 'SQL', 'Python'] },\n    { id: 'RC007', name: 'Candidate G (fictional)', education: 'PhD', experienceYears: 0, skills: ['Python', 'SQL'] },\n    { id: 'RC008', name: 'Candidate H (fictional)', education: 'Bachelor', experienceYears: 2, skills: ['JavaScript', 'React', 'SQL', 'Node.js'] },\n    { id: 'RC009', name: 'Candidate I (fictional)', education: 'Associate', experienceYears: 2, skills: ['JavaScript', 'React'] },\n    { id: 'RC010', name: 'Candidate J (fictional)', education: 'Master', experienceYears: 0, skills: ['JavaScript', 'React', 'SQL'] },\n    { id: 'RC011', name: 'Candidate K (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['React'] },\n    { id: 'RC012', name: 'Candidate L (fictional)', education: 'Bachelor', experienceYears: 5, skills: ['SQL', 'Python'] }\n  ],\n  'DEMO-JOB-05': [\n    { id: 'MK01', name: 'Sarah V. (fictional)', education: 'Bachelor', experienceYears: 2, skills: ['SEO', 'Copywriting', 'Analytics'] },\n    { id: 'MK02', name: 'Yanis D. (fictional)', education: 'Master', experienceYears: 1, skills: ['SEO', 'Analytics'] },\n    { id: 'MK03', name: 'Emma G. (fictional)', education: 'Bachelor', experienceYears: 0, skills: ['Copywriting', 'Canva'] },\n    { id: 'MK04', name: 'Lucas F. (fictional)', education: 'High School', experienceYears: 2, skills: ['SEO', 'Copywriting'] },\n    { id: 'MK05', name: 'Zoé H. (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['Analytics', 'Excel'] },\n    { id: 'MK06', name: 'Adam N. (fictional)', education: 'Master', experienceYears: 3, skills: ['Copywriting', 'SEO'] },\n    { id: 'MK07', name: 'Julie C. (fictional)', education: 'Bachelor', experienceYears: 1, skills: ['SEO'] }\n  ]\n};\nreturn [{ json: { source: 'seeded-demo-api', candidate, personas, jobs, recruiterPostings, applicants,\n  generatedAt: new Date().toISOString(), allSynthetic: true } }];\n"
+      },
+      "id": "3021f027-c00a-401d-b3e5-b85dcfdc3028",
+      "name": "Prepare Synthetic Catalogue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "54e0e2de-fff1-410c-8e40-291990452245",
+      "name": "Respond with Demo JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        592,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "GET /bait-demo-catalogue-v1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Synthetic Catalogue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Synthetic Catalogue": {
+      "main": [
+        [
+          {
+            "node": "Respond with Demo JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "errorWorkflow": "8y9qe5N7C2bieCGO"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "d1554281-f13e-463d-9c8d-53f958a9caae",
+  "activeVersionId": "d1554281-f13e-463d-9c8d-53f958a9caae",
+  "versionCounter": 6,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-17T19:03:17.869Z",
+      "createdAt": "2026-10-17T19:03:17.869Z",
+      "role": "workflow:owner",
+      "workflowId": "UFHi9gGay7YM3vUj",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

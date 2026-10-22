@@ -1,0 +1,162 @@
+{
+  "updatedAt": "2026-10-22T12:16:46.235Z",
+  "createdAt": "2026-10-17T19:10:27.867Z",
+  "id": "IYDMLvnLsL4mTuSf",
+  "name": "BAIT LAB 02 - Candidate to Jobs Engine",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "35ab5f68-d66b-4271-9d77-6e9ada150090",
+      "name": "Called by Parent Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -80,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $input.first().json;\nif (!payload || payload.allSynthetic !== true || !payload.candidate || !Array.isArray(payload.jobs)) {\n  throw new Error('Expected synthetic candidate and jobs from the read-only demo API.');\n}\nconst candidate = payload.candidate;\nif (!candidate.id || !Array.isArray(candidate.skills) || typeof candidate.experienceYears !== 'number') {\n  throw new Error('Incomplete candidate test record');\n}\nreturn [{json:{candidate, jobs:payload.jobs, source:payload.source, allSynthetic:true}}];"
+      },
+      "id": "2bf7a692-f456-49ca-8da4-dfa7f18865d4",
+      "name": "Validate API Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input=$input.first().json;\nconst levels={'high school':1,'bachelor':2,'master':3,'phd':4};\nconst cLevel=levels[String(input.candidate.degree||'').toLowerCase()]||0;\nconst eligible=[]; const excluded=[];\nfor (const job of input.jobs){\n  const required=levels[String(job.minimumEducation||'').toLowerCase()]||0;\n  if (!job.id || !Array.isArray(job.requiredSkills) || job.requiredSkills.length===0 || required===0 || cLevel===0) {\n    excluded.push({jobId:job.id||'UNKNOWN',reason:'Incomplete or unknown eligibility data'});\n  }else if(cLevel<required){\n    excluded.push({jobId:job.id,reason:`Requires ${job.minimumEducation} education`});\n  }else {\n    eligible.push(job);\n  }\n}\nreturn [{json:{candidate:input.candidate,eligible,excluded,allSynthetic:true}}];"
+      },
+      "id": "d0ddde89-02dd-4bca-b708-068c2c736037",
+      "name": "Hard Eligibility Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const {candidate,eligible,excluded}= $input.first().json;\nconst normalize = s=>String(s).trim().toLowerCase();\nconst scores=eligible.map(job=>{\n const matched=job.requiredSkills.filter(s=>candidate.skills.some(cs=>normalize(cs)===normalize(s)));\n const missing=job.requiredSkills.filter(s=>!matched.some(m=>normalize(m)===normalize(s)));\n const skillPct=matched.length/job.requiredSkills.length;\n const minYears=Number(job.minimumExperienceYears);\n const expPct=(Number.isFinite(minYears)&&minYears>0)?Math.min(candidate.experienceYears/minYears,1):1;\n const skillPoints=40*skillPct,experiencePoints=30*expPct,educationPoints=30;\n const score=Math.round(skillPoints+experiencePoints+educationPoints);\n return {id:job.id,title:job.title,company:job.company,location:job.location,score,\n  breakdown:{skills:Math.round(skillPoints),experience:Math.round(experiencePoints),education:Math.round(educationPoints)},\n  matchedSkills:matched,missingSkills:missing,\n  reason:`Matched ${matched.length}/${job.requiredSkills.length} listed skills; experience ${candidate.experienceYears} year(s) vs. ${job.minimumExperienceYears} requested; education eligible.`};\n});\nscores.sort((a,b)=>b.score-a.score||a.id.localeCompare(b.id));\n// allScored: every eligible job, ranked (used by the interactive Telegram controller for one card per job).\nreturn [{json:{candidate:{id:candidate.id,name:candidate.name},top3:scores.slice(0,3),allScored:scores,eligibleCount:scores.length,excludedCount:excluded.length,excluded,allSynthetic:true,scoringMethod:'Demo 40/30/30 skills/experience/education; not hiring probability'}}];\n"
+      },
+      "id": "39bc170f-1273-4e68-bcdb-d27d083276ce",
+      "name": "Score and Rank Eligible Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const x=$input.first().json;\nlet text=`Internship recommendations for ${x.candidate.name}\\n\\n`;\nif(!x.top3.length){text+='No eligible test jobs were found.\\n';}\nelse {x.top3.forEach((j,i)=>{text+=`${i+1}. ${j.title} — ${j.company}\\n   Fit score: ${j.score}/100\\n   ${j.reason}\\n\\n`;});}\ntext+=`Eligibility exclusions: ${x.excludedCount}.\\nSynthetic data only. Scores are relative fit, not hiring probabilities.`;\nreturn [{json:{...x,message:text}}];"
+      },
+      "id": "0c7c5b2e-fabd-4862-ac9c-d2e0ffc220ad",
+      "name": "Build Deterministic Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        -224
+      ]
+    }
+  ],
+  "connections": {
+    "Called by Parent Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate API Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate API Contract": {
+      "main": [
+        [
+          {
+            "node": "Hard Eligibility Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hard Eligibility Gate": {
+      "main": [
+        [
+          {
+            "node": "Score and Rank Eligible Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and Rank Eligible Jobs": {
+      "main": [
+        [
+          {
+            "node": "Build Deterministic Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "errorWorkflow": "8y9qe5N7C2bieCGO"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "72e58f71-35e1-4bc2-9934-2a45af242b4d",
+  "activeVersionId": "72e58f71-35e1-4bc2-9934-2a45af242b4d",
+  "versionCounter": 3,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-17T19:10:27.873Z",
+      "createdAt": "2026-10-17T19:10:27.873Z",
+      "role": "workflow:owner",
+      "workflowId": "IYDMLvnLsL4mTuSf",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
