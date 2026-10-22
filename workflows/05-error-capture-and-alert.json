@@ -1,0 +1,126 @@
+{
+  "updatedAt": "2026-10-22T12:16:45.488Z",
+  "createdAt": "2026-10-18T18:57:50.567Z",
+  "id": "8y9qe5N7C2bieCGO",
+  "name": "BAIT LAB 05 - Error Capture",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "3791c817-5673-4d6e-84d5-e32a7c4225ed",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds a short alert for the owner. No secrets: only the workflow name, failed node, error text and the execution link.\nconst x = $input.first().json;\nconst e = x.execution || {}; const w = x.workflow || {};\nconst summary = { workflow: w.name || 'unknown', executionId: e.id || 'unknown', failedNode: e.lastNodeExecuted || 'unknown',\n  error: (e.error && e.error.message) || 'unknown error', url: e.url || '(no execution URL: manual run)', timestamp: new Date().toISOString() };\nconst message = 'BAIT ALERT: a workflow failed\\nWorkflow: ' + summary.workflow + '\\nFailed node: ' + summary.failedNode + '\\nError: ' + String(summary.error).slice(0, 300) + '\\nExecution: ' + summary.url;\nreturn [{ json: { ...summary, message } }];"
+      },
+      "id": "4ac1301c-5050-457e-8308-b026e1975816",
+      "name": "Summarize Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "8945018506",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        512,
+        0
+      ],
+      "id": "85aab5a5-2472-4fb9-b6ea-66e6811c3f25",
+      "name": "Send Alert to Owner",
+      "webhookId": "c09af701-0ca0-4e10-882b-c341efb54ef2",
+      "credentials": {
+        "telegramApi": {
+          "id": "uM6XJjKibSS3vAf9",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Summarize Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Failure": {
+      "main": [
+        [
+          {
+            "node": "Send Alert to Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "99886a1e-3486-4fdc-98d1-2245acb26aae",
+  "activeVersionId": "99886a1e-3486-4fdc-98d1-2245acb26aae",
+  "versionCounter": 2,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-18T18:57:50.572Z",
+      "createdAt": "2026-10-18T18:57:50.572Z",
+      "role": "workflow:owner",
+      "workflowId": "8y9qe5N7C2bieCGO",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

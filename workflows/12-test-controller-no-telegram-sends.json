@@ -1,0 +1,1310 @@
+{
+  "updatedAt": "2026-10-22T10:03:01.000Z",
+  "createdAt": "2026-10-22T09:12:14.006Z",
+  "id": "c9TQ0w5cfqY11MI3",
+  "name": "BAIT LAB 12 TEST (no Telegram sends)",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "5faa1807-089d-4e4f-94df-091896083ec8",
+      "name": "Manual Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turns a Telegram update (typed message OR button tap) into one simple shape,\n// and checks that it comes from the owner's chat. Other chats are ignored.\nconst OWNER_CHAT_ID = '8945018506';\nconst u = $input.first().json;\nlet chatId = '', input = '', isButton = false, queryId = '';\nif (u.callback_query) {\n  isButton = true;\n  queryId = String(u.callback_query.id || '');\n  chatId = String(u.callback_query.message?.chat?.id || '');\n  input = String(u.callback_query.data || '');\n} else if (u.message) {\n  chatId = String(u.message.chat?.id || '');\n  input = String(u.message.text || '');\n}\ninput = input.trim();\n// Idempotency: Telegram re-sends an update if our reply is slow. Remember recent update_ids\n// so the same update never produces a second reply (manual test runs have no update_id).\nconst seen = $getWorkflowStaticData('global');\nseen.seenUpdates = seen.seenUpdates || [];\nlet duplicate = false;\nif (u.update_id) {\n  duplicate = seen.seenUpdates.includes(u.update_id);\n  if (!duplicate) { seen.seenUpdates.push(u.update_id); seen.seenUpdates = seen.seenUpdates.slice(-200); }\n}\nreturn [{ json: { chatId, input, isButton, queryId, authorized: chatId === OWNER_CHAT_ID && input.length > 0 && !duplicate, duplicate } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        400
+      ],
+      "id": "6ac44b3c-bc9c-4d45-a525-e8707d220fc1",
+      "name": "Normalize Update"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8759eed9-1ecb-484d-919f-b359ee7296ed",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        400
+      ],
+      "id": "6a0684bd-57ce-463f-9356-29b8fd930b77",
+      "name": "Owner Only?"
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:5678/webhook/bait-demo-catalogue-v1",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "4ce19a4c-2d11-4a95-a801-518dc6e2058f",
+      "name": "GET Demo Catalogue - 01",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        420
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decides what the user asked for, updates the remembered demo state (chosen student,\n// chosen posting, recruiter settings, applications), and prepares the input for the engine\n// workflow that must run next: 02 (matching), 06 (AI advice), 09 (live jobs) or 10 (recruiter ranking).\nconst u = $('Normalize Update').first().json;\nconst cat = $input.first().json;\nif (cat.allSynthetic !== true || !Array.isArray(cat.personas) || !Array.isArray(cat.jobs)) {\n  throw new Error('Demo catalogue unavailable or invalid');\n}\nconst store = $getWorkflowStaticData('global');\nconst DEFAULT = { weights: { skills: 40, experience: 30, education: 30 }, threshold: 70 };\nconst copy = o => JSON.parse(JSON.stringify(o));\nstore.persona = store.persona || 'alex';\nstore.posting = store.posting || cat.recruiterPostings[0];\nstore.settings = store.settings || {};\nstore.applications = store.applications || {};\nstore.notified = store.notified || {};\n\nconst personas = Object.fromEntries(cat.personas.map(p => [p.id, p]));\nconst jobById = Object.fromEntries(cat.jobs.map(j => [j.id, j]));\nconst typed = { '/start': 'home', '/help': 'home', '/menu': 'home', '/candidate': 'c:menu', '/recruiter': 'r:dash',\n  '/matches': 'cm', '/match': 'cm', '/live': 'cl', '/notify': 'rn', '/profile': 'cpro', '/browse': 'cb', '/jobs': 'cb', '/advice': 'ci', '/reset': 'demo:reset', '/drill': 'drill' };\nconst parts = u.input.split(/\\s+/);\nconst first = parts[0].split('@')[0];\nlet action = first.startsWith('/') ? (typed[first.toLowerCase()] || 'unknown') : first;\nconst args = parts.slice(1);\nconst idx = action.indexOf(':');\nconst verb = idx >= 0 ? action.slice(0, idx) : action;\nconst arg = idx >= 0 ? action.slice(idx + 1) : '';\nconst out = { verb, arg, engine: 'none', note: null, error: null };\n\nconst settingsOf = id => copy(store.settings[id] || DEFAULT);\nconst applyPreset = (id, p) => {\n  const s = settingsOf(id);\n  if (p === 's') s.weights = { skills: 60, experience: 20, education: 20 };\n  else if (p === 'e') s.weights = { skills: 20, experience: 60, education: 20 };\n  else if (p === 'b') s.weights = { skills: 34, experience: 33, education: 33 };\n  else if (p === 't+') s.threshold = Math.min(100, s.threshold + 10);\n  else if (p === 't-') s.threshold = Math.max(0, s.threshold - 10);\n  else if (p === 'r') { store.settings[id] = copy(DEFAULT); store.notified[id] = {}; return 'Settings reset to 40 / 30 / 30, threshold 70. Notification history for this posting cleared.'; }\n  else return null;\n  store.settings[id] = s;\n  return 'Settings updated.';\n};\nconst parseTyped = (id, list) => {\n  const alias = { skills: 'skills', skill: 'skills', experience: 'experience', exp: 'experience', education: 'education', edu: 'education', threshold: 'threshold', min: 'threshold' };\n  if (list.length === 1 && /^(reset|default)$/i.test(list[0])) return { ok: true, note: applyPreset(id, 'r') };\n  const s = settingsOf(id);\n  for (const a of list) {\n    const m = a.match(/^([a-z]+)[=:](\\d{1,3})$/i);\n    const key = m && alias[m[1].toLowerCase()];\n    if (!key) return { ok: false, msg: 'I did not understand \"' + a + '\".' };\n    const v = Number(m[2]);\n    if (v > 100) return { ok: false, msg: 'Values must be between 0 and 100.' };\n    if (key === 'threshold') s.threshold = v; else s.weights[key] = v;\n  }\n  const w = s.weights, sum = w.skills + w.experience + w.education;\n  if (sum !== 100) return { ok: false, msg: 'Weights must add up to 100 (now ' + w.skills + ' + ' + w.experience + ' + ' + w.education + ' = ' + sum + ').' };\n  store.settings[id] = s;\n  return { ok: true, note: 'Settings updated.' };\n};\nconst personaAsCandidate = p => ({ id: p.candidateId, name: p.name, degree: p.degree, skills: p.skills,\n  experienceYears: p.experienceYears, location: p.location });\nconst recruiterInput = id => {\n  const s = settingsOf(id);\n  const applied = (store.applications[id] || []).filter(pid => personas[pid]).map(pid => {\n    const p = personas[pid];\n    return { id: 'TG-' + pid, name: p.name.replace('(fictional)', '(fictional, applied via Telegram)'), education: p.degree,\n      experienceYears: p.experienceYears, skills: p.skills, viaTelegram: true };\n  });\n  return { job: { ...jobById[id], weights: s.weights, threshold: s.threshold },\n    candidates: cat.applicants[id].concat(applied), allSynthetic: true };\n};\n\nswitch (verb) {\n  case 'home': case 'c': case 'cb': break;\n  case 'r':\n    if (arg === 'dash') {\n      if (args.length) {\n        const r = parseTyped(store.posting, args);\n        if (!r.ok) { out.verb = 'rerror'; out.error = r.msg; break; }\n        out.note = r.note;\n      }\n      out.verb = 'rdash'; out.engine = 'recruit';\n    }\n    break;\n  case 'demo':\n    store.persona = 'alex'; store.posting = cat.recruiterPostings[0];\n    store.settings = {}; store.applications = {}; store.notified = {};\n    out.verb = 'home'; out.note = 'Demo reset: applications, recruiter settings and notification history cleared.';\n    break;\n  case 'cp':\n    if (personas[arg]) store.persona = arg;\n    out.verb = 'cpro';\n    break;\n  case 'cpro': break;\n  case 'cm': case 'cw': case 'ci':\n    out.engine = verb === 'ci' ? 'ai' : 'match';\n    out.engineInput = { candidate: personaAsCandidate(personas[store.persona]), jobs: cat.jobs, allSynthetic: true, source: 'seeded-demo-api' };\n    break;\n  case 'ca':\n    if (cat.recruiterPostings.includes(arg)) {\n      const list = store.applications[arg] = store.applications[arg] || [];\n      out.alreadyApplied = list.includes(store.persona);\n      if (!out.alreadyApplied) list.push(store.persona);\n    } else out.error = 'This employer is not part of the recruiter demo.';\n    break;\n  case 'drill':\n    // Failure drill: deliberately points workflow 09 at a board that does not exist,\n    // to show the retry, the error output, the safe reply and the error-workflow alert live.\n    out.verb = 'cl'; out.drill = true; out.engine = 'live';\n    out.engineInput = { skills: personas[store.persona].skills, simulateFailure: true };\n    break;\n  case 'cl':\n    out.engine = 'live';\n    out.engineInput = { skills: personas[store.persona].skills };\n    break;\n  case 'rp':\n    if (cat.recruiterPostings.includes(arg)) store.posting = arg;\n    out.verb = 'rdash'; out.engine = 'recruit';\n    break;\n  case 'rw':\n    out.note = applyPreset(store.posting, arg);\n    out.verb = 'rdash'; out.engine = 'recruit';\n    break;\n  case 'rn':\n    out.engine = 'recruit';\n    break;\n  default:\n    out.verb = 'home'; out.note = 'Sorry, I did not understand that. Use the buttons below or /help.';\n}\nif (out.engine === 'recruit') out.engineInput = recruiterInput(store.posting);\nout.persona = personas[store.persona];\nout.postingId = store.posting;\nout.settings = settingsOf(store.posting);\nout.applications = copy(store.applications);\nout.catalogue = { jobs: cat.jobs, personas: cat.personas, recruiterPostings: cat.recruiterPostings,\n  applicantCounts: Object.fromEntries(cat.recruiterPostings.map(id => [id, cat.applicants[id].length])) };\n// Engine workflows receive this item as-is, so expose their inputs at the top level.\nif (out.engineInput) Object.assign(out, out.engineInput);\nreturn [{ json: out }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        400
+      ],
+      "id": "b9d4290a-e8e9-4495-bda0-beb8d490c567",
+      "name": "Plan Action",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "6104246b-fbcc-4144-87ac-5be94fd4b182",
+                    "leftValue": "={{ $json.engine }}",
+                    "rightValue": "match",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "match"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "44b27635-103e-4208-9161-830900428640",
+                    "leftValue": "={{ $json.engine }}",
+                    "rightValue": "ai",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ai"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e48d74dc-e2f9-4bf8-acea-ddcc1a28671f",
+                    "leftValue": "={{ $json.engine }}",
+                    "rightValue": "live",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "live"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "50f3af8f-a51a-4082-8ca0-2b0633dd8fce",
+                    "leftValue": "={{ $json.engine }}",
+                    "rightValue": "recruit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "recruit"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        400
+      ],
+      "id": "f06eb875-f473-4b67-8cea-2c893efcef39",
+      "name": "Route to Engine"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "IYDMLvnLsL4mTuSf",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/IYDMLvnLsL4mTuSf",
+          "cachedResultName": "BAIT LAB 02 - Candidate to Jobs Engine"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1340,
+        120
+      ],
+      "id": "59b585d7-eb56-496b-92f5-e6b56df19877",
+      "name": "Match Candidate - SELECT 02",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "hqmkMSIzximxZYL5",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/hqmkMSIzximxZYL5",
+          "cachedResultName": "BAIT LAB 07 - Persist Job Recommendations"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1560,
+        100
+      ],
+      "id": "b429d532-6bf9-45d2-82d6-b80060a53a6e",
+      "name": "Save Top 3 - SELECT 07",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "IYDMLvnLsL4mTuSf",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/IYDMLvnLsL4mTuSf",
+          "cachedResultName": "BAIT LAB 02 - Candidate to Jobs Engine"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1340,
+        300
+      ],
+      "id": "e076e142-29aa-45b6-9078-c1ef52fe374b",
+      "name": "Match for AI - SELECT 02",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "BFQ6Mp6WXagUlQo6",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/BFQ6Mp6WXagUlQo6",
+          "cachedResultName": "BAIT LAB 06 - AI Explanation (requires setup)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1560,
+        300
+      ],
+      "id": "c64ba40a-9f3e-4f15-9e3b-3f8b23b33d4c",
+      "name": "Explain with AI - SELECT 06",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "qhsXJbitOHxFF0Dn",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/qhsXJbitOHxFF0Dn",
+          "cachedResultName": "BAIT LAB 09 - Live Public Internship Evidence"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1340,
+        480
+      ],
+      "id": "19233365-97e5-4a0b-b740-26896c737553",
+      "name": "Live Internships - SELECT 09",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "XHNepdnitiMYhMnh",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/XHNepdnitiMYhMnh",
+          "cachedResultName": "BAIT LAB 10 - Recruiter Candidate Ranking Engine"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1340,
+        660
+      ],
+      "id": "9f784ed1-6c8d-4ccb-9d38-31cee0908083",
+      "name": "Rank Applicants - SELECT 10",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Telegram replies as a list of messages. Each message names the button set (\"kb\")\n// it needs; the send loop delivers them one by one, in order.\nconst plan = $('Plan Action').first().json;\nlet r = $input.first().json || {};\n// If saving (workflow 07) failed, still show the matches from workflow 02.\nif (['cm', 'cw'].includes(plan.verb) && !Array.isArray(r.allScored)) {\n  try { const m = $('Match Candidate - SELECT 02').first().json; if (Array.isArray(m.allScored)) r = { ...m, persistedRows: 0 }; } catch (e) { /* engine did not run */ }\n}\nconst store = $getWorkflowStaticData('global');\nconst cat = plan.catalogue;\nconst P = plan.persona;\nconst first = n => String(n).replace(/\\s*\\(fictional[^)]*\\)/, '');\nconst jobById = Object.fromEntries(cat.jobs.map(j => [j.id, j]));\nconst bar = s => '█'.repeat(Math.round(s / 10)) + '░'.repeat(10 - Math.round(s / 10));\nconst msgs = [];\nconst say = (text, kb = 'none', extra = {}) => msgs.push({ kind: 'text', kb, text, ...extra });\nconst CAND = 'CANDIDATE SIDE', REC = 'RECRUITER SIDE';\nconst needsLine = j => j.minimumEducation + '+, ' + j.minimumExperienceYears + ' yr, ' + j.requiredSkills.join(', ');\nconst engineFailed = () => say('That part of the demo is temporarily unavailable. Nothing was changed. Please try again in a moment.',\n  plan.verb.startsWith('r') ? 'rec' : 'cand');\n\nconst v = plan.verb;\nif (plan.note && !v.startsWith('r')) say(plan.note);\n\nif (v === 'home') {\n  say('Welcome to BAIT, an internship matching demo.\\n\\n' +\n    'CANDIDATE SIDE: pick a fictional student, see their profile, browse the internships, get explained matches, and apply.\\n' +\n    'RECRUITER SIDE: pick a job posting, rank its applicants with your own weights, and notify them.\\n\\n' +\n    'Everyone in the demo is fictional. Real public listings appear only under \"Real market\" and are labelled.', 'role');\n} else if (v === 'c') {\n  say(CAND + '\\nWho are you? (fictional students)\\n\\n' + cat.personas.map(p =>\n    '• ' + first(p.name) + ': ' + p.degree + ' in ' + p.field + ', ' + p.experienceYears + ' yr, looking for ' + p.goal).join('\\n'), 'persona');\n} else if (v === 'cpro') {\n  say(CAND + ' · Profile\\n\\n' + P.name + '\\nDegree: ' + P.degree + ' (' + P.field + ')\\nExperience: ' + P.experienceYears + ' year(s)\\n' +\n    'Skills: ' + P.skills.join(', ') + '\\nCity: ' + P.location + '\\nLooking for: ' + P.goal + '\\n\\n' +\n    'Every match score is calculated from this profile. Next: Browse internships to see what is open.', 'cand');\n} else if (v === 'cb') {\n  const lines = cat.jobs.map((j, i) => (i + 1) + '. ' + j.title + ', ' + first(j.company) + ' (' + j.location + ')' +\n    (cat.recruiterPostings.includes(j.id) ? ' [recruiter demo: can apply]' : '') + '\\n   Needs: ' + needsLine(j));\n  say(CAND + ' · Open internships (' + cat.jobs.length + ', fictional catalogue)\\n\\n' + lines.join('\\n') +\n    '\\n\\nNext: My matches scores ' + first(P.name) + ' against all of these.', 'cand');\n} else if (v === 'cm' || v === 'cw') {\n  if (!Array.isArray(r.allScored)) engineFailed();\n  else if (v === 'cm') {\n    const n = r.allScored.length;\n    say(CAND + ' · Matches for ' + first(P.name) + '\\n' +\n      'All ' + cat.jobs.length + ' internships checked: ' + n + ' eligible, ' + r.excluded.length + ' ruled out by the degree rule.\\n' +\n      'Score = skills 40 + experience 30 + education 30. Top 5:');\n    r.allScored.slice(0, 5).forEach((j, i) => {\n      const job = jobById[j.id];\n      const open = cat.recruiterPostings.includes(j.id);\n      const applied = (plan.applications[j.id] || []).includes(P.id);\n      say('#' + (i + 1) + '  ' + j.score + '/100  ' + bar(j.score) + '\\n' + j.title + '\\n' + first(j.company) + ' · ' + j.location + '\\n' +\n        'Has: ' + (j.matchedSkills.join(', ') || 'none') + '\\nMissing: ' + (j.missingSkills.join(', ') || 'none') + '\\n' +\n        'Experience: ' + P.experienceYears + ' yr of ' + job.minimumExperienceYears + ' required' +\n        (open ? (applied ? '\\nApplied ✓' : '\\nOpen in the recruiter demo: you can apply.') : ''),\n        open && !applied ? 'jobApply' : 'job', { jobId: j.id });\n    });\n    const ex = r.excluded.map(e => '• ' + jobById[e.jobId].title + ': ' + e.reason).join('\\n');\n    say((ex ? 'Not eligible:\\n' + ex + '\\n\\n' : '') + (r.persistedRows ? 'Top 3 saved to Postgres: ' + r.persistedRows + ' rows upserted, no duplicates' + (r.timesSaved > 1 ? ' (saved ' + r.timesSaved + ' times since ' + new Date(r.firstSaved).toLocaleString('en-GB', { timeZone: 'Europe/Paris', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')' : ' (first save)') + '.\\n' : 'Saving was unavailable this time; the scores are unaffected.\\n') +\n      'Tap \"Why this score?\" on a card, Apply where it is open, or AI advice for a written summary.', 'cand');\n  } else {\n    const j = r.allScored.find(x => x.id === plan.arg);\n    const job = jobById[plan.arg];\n    if (!j) say(CAND + '\\n' + (job ? job.title + ' is not eligible for ' + first(P.name) + ' (degree rule).' : 'Unknown internship.'), 'cand');\n    else {\n      const open = cat.recruiterPostings.includes(j.id) && !(plan.applications[j.id] || []).includes(P.id);\n      say(CAND + ' · Why ' + j.title + ' scored ' + j.score + '/100 for ' + first(P.name) + '\\n\\n' +\n        'Eligibility: needs ' + job.minimumEducation + ', has ' + P.degree + ' → eligible\\n' +\n        'Skills: ' + j.matchedSkills.length + ' of ' + job.requiredSkills.length + ' required' +\n        (j.matchedSkills.length ? ' (' + j.matchedSkills.join(', ') + ')' : '') + ' → ' + j.breakdown.skills + '/40\\n' +\n        'Experience: ' + P.experienceYears + ' of ' + job.minimumExperienceYears + ' yr → ' + j.breakdown.experience + '/30\\n' +\n        'Education: requirement met → ' + j.breakdown.education + '/30\\n' +\n        (j.missingSkills.length ? '\\nTo improve: learn ' + j.missingSkills.join(', ') + '.\\n' : '\\n') +\n        'Same rules for every internship. The AI never changes scores.', open ? 'whyApply' : 'why', { jobId: j.id });\n    }\n  }\n} else if (v === 'ca') {\n  const job = jobById[plan.arg];\n  if (plan.error || !job) say(CAND + '\\n' + (plan.error || 'Unknown internship.'), 'cand');\n  else {\n    const total = cat.applicantCounts[job.id] + (plan.applications[job.id] || []).length;\n    say(CAND + ' · ' + (plan.alreadyApplied ? 'Already applied' : 'Application sent') + '\\n' +\n      first(P.name) + ' → ' + job.title + ' at ' + first(job.company) + '.\\n' + total + ' applicants now.\\n\\n' +\n      'Switch to the RECRUITER SIDE and open this posting to see where ' + first(P.name) + ' ranks.', 'candAfterApply', { jobId: job.id });\n  }\n} else if (v === 'ci') {\n  const ok = typeof r.message === 'string' && /verified/i.test(String(r.source || ''));\n  say(CAND + ' · AI advice for ' + first(P.name) + '\\n\\n' + (ok ? r.message + '\\n\\n(Checked: every job title and score above matches the scoring engine.)'\n    : 'The AI explanation is unavailable right now (free model limit or a failed check). The scores in My matches still stand.'), 'cand');\n} else if (v === 'cl') {\n  if (!Array.isArray(r.jobs)) say((plan.drill ? 'FAILURE DRILL (on purpose)\\nThe controller sent workflow 09 to a job board that does not exist. The HTTP call was retried 3 times, workflow 09 failed, the error workflow alerted the owner, and this reply came from the error path.\\n\\n' : '') + CAND + ' · Real market\\nThe live public job board is unavailable right now. No listings were invented.', 'cand');\n  else {\n    say(CAND + ' · Real market (live)\\nSource: ' + r.board + ' on Greenhouse, fetched just now.\\n' + r.internshipCount + ' real internship listings. ' +\n      'Ranked by how many of ' + first(P.name) + '\\'s skills the description mentions.\\nRequirements are NOT verified, so these get no score.');\n    r.jobs.slice(0, 5).forEach((j, i) => say((i + 1) + '. ' + j.title + '\\n' + j.location + '\\nMentions: ' +\n      (j.mentionedSkills.join(', ') || 'none of ' + first(P.name) + '\\'s skills') + '\\n' + j.url));\n    say('Real listings are evidence of the market. The fictional catalogue is where scoring and applying happen.', 'cand');\n  }\n} else if (v === 'r') {\n  say(REC + '\\nChoose a job posting to review (fictional employers):\\n\\n' + cat.recruiterPostings.map(id => {\n    const j = jobById[id]; const tg = (plan.applications[id] || []).length;\n    return '• ' + j.title + ', ' + first(j.company) + ': ' + cat.applicantCounts[id] + ' applicants' + (tg ? ' + ' + tg + ' via Telegram' : '');\n  }).join('\\n') + (Object.values(plan.applications).some(l => l.length) ? '\\n\\n★ = a student who applied through this chat.' : '\\n\\nTip: no student has applied through this chat yet. On the candidate side, open My matches and tap Apply on an internship marked \"you can apply\"; the student then appears here with a ★.'), 'postings');\n} else if (v === 'rerror') {\n  say(REC + '\\nSettings not changed. ' + plan.error + '\\nExample: /recruiter skills=30 experience=50 education=20 threshold=60', 'rec');\n} else if (v === 'rdash' || v === 'rn') {\n  if (!Array.isArray(r.allEvaluations)) engineFailed();\n  else {\n    const job = jobById[plan.postingId];\n    const W = plan.settings.weights, T = plan.settings.threshold;\n    const cands = plan.engineInput.candidates;\n    const names = Object.fromEntries(cands.map(c => [c.id, c.name]));\n    const evals = r.allEvaluations;\n    const above = evals.filter(c => c.score >= T);\n    const top3 = new Set(above.slice(0, 3).map(c => c.id));\n    const statusOf = c => top3.has(c.id) ? 'INTERVIEW' : (c.score >= T ? 'ELIGIBLE' : 'NOT_PROGRESSING');\n    const label = { INTERVIEW: 'top 3 · interview', ELIGIBLE: 'eligible', NOT_PROGRESSING: 'below threshold', INELIGIBLE: 'ineligible' };\n    const settingsLine = 'Weights: skills ' + W.skills + ' / experience ' + W.experience + ' / education ' + W.education + ' · threshold ' + T;\n    const star = id => String(id).startsWith('TG-') ? '★ ' : '';\n    if (v === 'rdash') {\n      const scores = evals.map(c => c.score).sort((a, b) => a - b);\n      const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;\n      const mid = scores.length ? (scores.length % 2 ? scores[(scores.length - 1) / 2] : Math.round((scores[scores.length / 2 - 1] + scores[scores.length / 2]) / 2)) : 0;\n      const miss = {}; evals.forEach(c => c.missingSkills.forEach(s => { miss[s] = (miss[s] || 0) + 1; }));\n      const topMiss = Object.entries(miss).sort((a, b) => b[1] - a[1])[0];\n      const tg = cands.filter(c => c.viaTelegram).length;\n      say(REC + ' · ' + job.title + ', ' + first(job.company) + '\\n' + (plan.note ? plan.note + '\\n' : '') +\n        'Requirements: ' + needsLine(job) + ' (degree is a hard rule)\\n' + settingsLine + '\\n\\n' +\n        'Applicants ' + cands.length + (tg ? ' (' + tg + ' via Telegram ★)' : '') + ' | ineligible ' + r.excluded.length + ' | scored ' + evals.length + ' | at/above threshold ' + above.length + '\\n' +\n        'Average ' + avg + ' | median ' + mid + ' | range ' + (scores[0] ?? '-') + '-' + (scores[scores.length - 1] ?? '-') +\n        (topMiss ? '\\nMost common missing skill: ' + topMiss[0] + ' (' + topMiss[1] + ' of ' + evals.length + ')' : ''));\n      const short = n => first(n).replace(/\\s*\\(.*$/, '');\n      const cfg = { type: 'horizontalBar', data: { labels: evals.map((c, i) => (i + 1) + '. ' + star(c.id) + short(c.name) + ' (' + c.score + ')'),\n        datasets: [{ label: 'Skills', data: evals.map(c => c.scoreBreakdown.skills), backgroundColor: '#1f6feb' },\n          { label: 'Experience', data: evals.map(c => c.scoreBreakdown.experience), backgroundColor: '#0f9d6b' },\n          { label: 'Education', data: evals.map(c => c.scoreBreakdown.education), backgroundColor: '#e0a100' }] },\n        options: { title: { display: true, text: job.title + ': score per applicant (red line = threshold ' + T + ')' },\n          legend: { position: 'bottom' },\n          scales: { xAxes: [{ stacked: true, ticks: { min: 0, max: 100, stepSize: 10 } }], yAxes: [{ stacked: true }] },\n          annotation: { annotations: [{ type: 'line', mode: 'vertical', scaleID: 'x-axis-0', value: T, borderColor: '#d92d20', borderWidth: 3 }] } } };\n      const url = 'https://quickchart.io/chart?w=800&h=' + (140 + 34 * evals.length) + '&bkg=white&c=' + encodeURIComponent(JSON.stringify(cfg));\n      msgs.push({ kind: 'photo', kb: 'photo', photoUrl: url, text: 'Each bar = skills + experience + education. ' + (r.excluded.length ? r.excluded.length + ' ineligible applicant(s) are not scored.' : '') });\n      const list = evals.map((c, i) => (i + 1) + '. ' + star(c.id) + first(c.name) + ': ' + c.score + ' · ' + label[statusOf(c)] + '\\n   ' +\n        'skills ' + c.scoreBreakdown.skills + '/' + W.skills + (c.missingSkills.length ? ' (missing ' + c.missingSkills.join(', ') + ')' : '') +\n        ' · exp ' + c.scoreBreakdown.experience + '/' + W.experience + ' (' + c.experienceYears + ' yr) · edu ' + c.scoreBreakdown.education + '/' + W.education + ' (' + c.education + ')');\n      const inel = r.excluded.map(e => '• ' + first(names[e.id] || e.id) + ': ' + e.reason);\n      say('RANKED APPLICANTS\\n' + list.join('\\n') + (inel.length ? '\\n\\nINELIGIBLE (not scored)\\n' + inel.join('\\n') : '') +\n        '\\n\\nChange the weighting with the buttons, then Notify applicants. Scores support a human decision; they never make it.', 'rec');\n    } else {\n      const prev = (store.notified[plan.postingId] = store.notified[plan.postingId] || {});\n      const text = {\n        INTERVIEW: 'Good news: you meet the criteria for ' + job.title + ' and are invited to an interview.',\n        ELIGIBLE: 'You meet the criteria for ' + job.title + ' and are under consideration.',\n        NOT_PROGRESSING: 'Thank you for applying for ' + job.title + '. Under the current criteria we will not progress your application.',\n        INELIGIBLE: 'Thank you for applying for ' + job.title + '. It requires a ' + job.minimumEducation + ' degree or higher, so you are not eligible.' };\n      const all = evals.map(c => ({ id: c.id, name: c.name, score: c.score, status: statusOf(c), missing: c.missingSkills }))\n        .concat(r.excluded.map(e => ({ id: e.id, name: names[e.id] || e.id, score: null, status: 'INELIGIBLE', missing: [] })));\n      const out = []; let same = 0;\n      for (const c of all) {\n        if (prev[c.id] === c.status) { same++; continue; }\n        const upd = !!prev[c.id];\n        let body = (upd ? 'Update: the recruiter changed the selection criteria. ' : '') + text[c.status];\n        if (c.status === 'NOT_PROGRESSING' && c.missing.length) body += ' Adding ' + c.missing.join(', ') + ' would strengthen a future application.';\n        out.push((upd ? 'UPDATE (was ' + label[prev[c.id]] + ')' : 'NEW') + ' → ' + star(c.id) + first(c.name) + (c.score === null ? '' : ' (' + c.score + ')') + ': ' + label[c.status] +\n          '\\n   \"Hello ' + first(c.name).split(' ')[0] + '. ' + body + '\"');\n        prev[c.id] = c.status;\n      }\n      say(REC + ' · Notifications for ' + job.title + '\\n' + settingsLine + '\\n\\n' +\n        (out.length ? out.join('\\n') : 'No applicant\\'s status changed since the last notification, so nobody is messaged.') +\n        '\\n\\n' + out.length + ' message(s) queued, ' + same + ' unchanged. Outbox is simulated (fictional applicants); in production a recruiter approves before email is sent.', 'rec');\n    }\n  }\n}\nconst chatId = $('Normalize Update').first().json.chatId;\nreturn msgs.map(m => ({ json: { chatId, jobId: '', photoUrl: '', ...m, text: String(m.text || '').slice(0, 4000) } }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        400
+      ],
+      "id": "ff80a90e-075c-47a8-8e75-0451c8f34b97",
+      "name": "Render Messages",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generic message: no stack traces, IDs or credentials are exposed.\nconst chatId = $('Normalize Update').first().json.chatId;\nreturn [{ json: { chatId, kind: 'text', kb: 'role', jobId: '', photoUrl: '', text: 'Something went wrong in the demo. Nothing was changed. Please tap a button to try again.' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        640
+      ],
+      "id": "9fd198c9-c9a7-404c-b2af-b373d9a253eb",
+      "name": "Safe Failure Reply"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2040,
+        400
+      ],
+      "id": "0fbb7835-d583-4232-9359-d5c7582af603",
+      "name": "Send One at a Time"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "29d61940-6fff-4ca2-88b5-312c96de3f4c",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "role",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "role"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f0cb566f-dc0f-4b85-be0e-0f7287385a26",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "persona",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "persona"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e2e279d4-8379-490e-89c1-5b8a1304d7f0",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "cand",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cand"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "63079e5a-328d-49b6-bae4-d583feabd2c3",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "job",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "job"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "8077deb6-7e80-43a9-8f4d-4a60fdf59187",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "jobApply",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "jobApply"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c2a24710-d570-42ab-8047-8b8bc1350376",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "candAfterApply",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "candAfterApply"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c3a2e7e2-e0ab-4740-b428-7482eca941c1",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "postings",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "postings"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "0f0540af-ab91-4c1d-bd68-f5066f775bd9",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "rec",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "rec"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1edf1bee-d6e2-48c6-8a1d-582532d6b9f7",
+                    "leftValue": "={{ $json.kb }}",
+                    "rightValue": "photo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "photo"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2260,
+        400
+      ],
+      "id": "f19f6f26-adb9-41ba-b23b-abd30a2ef6f9",
+      "name": "Pick Buttons"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        80
+      ],
+      "id": "b26b6cce-36f4-4c4e-9188-e3489c0905c4",
+      "name": "Send + Role Buttons"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        190
+      ],
+      "id": "57f8fc01-0b2b-47ed-883e-438f893609b8",
+      "name": "Send + Student Buttons"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        300
+      ],
+      "id": "df35a460-6e71-4cbe-8704-3dba0b0e116f",
+      "name": "Send + Candidate Menu"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        410
+      ],
+      "id": "764aa0d6-0537-45d9-b296-bc49a99f9cb9",
+      "name": "Send Job Card"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        520
+      ],
+      "id": "4d9a38f3-7f05-4ae2-82e9-c42f0b7ccff0",
+      "name": "Send Job Card + Apply"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        630
+      ],
+      "id": "4a5398dc-171e-433c-8864-24eef2da3877",
+      "name": "Send + After-Apply Buttons"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        740
+      ],
+      "id": "927bd4d5-e85c-4c99-9ebf-143ec57929a5",
+      "name": "Send + Posting Buttons"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        850
+      ],
+      "id": "351c3e3e-6cc7-4941-9627-79a9bdf302a7",
+      "name": "Send + Recruiter Controls"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        960
+      ],
+      "id": "135cd52c-89cd-4e47-afd3-26cbe0c7bc6c",
+      "name": "Send Ranking Chart"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2540,
+        1070
+      ],
+      "id": "4eeeb608-9129-4e65-bf7d-4d60b0bb3b76",
+      "name": "Send Plain Text"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { message: { text: '/matches', chat: { id: 8945018506 } } } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        110,
+        560
+      ],
+      "id": "2671be27-c78e-474d-9b91-809f4a725756",
+      "name": "Fake Update"
+    }
+  ],
+  "connections": {
+    "Normalize Update": {
+      "main": [
+        [
+          {
+            "node": "Owner Only?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner Only?": {
+      "main": [
+        [
+          {
+            "node": "GET Demo Catalogue - 01",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "GET Demo Catalogue - 01": {
+      "main": [
+        [
+          {
+            "node": "Plan Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe Failure Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Action": {
+      "main": [
+        [
+          {
+            "node": "Route to Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe Failure Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route to Engine": {
+      "main": [
+        [
+          {
+            "node": "Match Candidate - SELECT 02",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Match for AI - SELECT 02",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Live Internships - SELECT 09",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rank Applicants - SELECT 10",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Candidate - SELECT 02": {
+      "main": [
+        [
+          {
+            "node": "Save Top 3 - SELECT 07",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Top 3 - SELECT 07": {
+      "main": [
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match for AI - SELECT 02": {
+      "main": [
+        [
+          {
+            "node": "Explain with AI - SELECT 06",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explain with AI - SELECT 06": {
+      "main": [
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live Internships - SELECT 09": {
+      "main": [
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rank Applicants - SELECT 10": {
+      "main": [
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Messages": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe Failure Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safe Failure Reply": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send One at a Time": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Pick Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Buttons": {
+      "main": [
+        [
+          {
+            "node": "Send + Role Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send + Student Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send + Candidate Menu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Job Card",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Job Card + Apply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send + After-Apply Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send + Posting Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send + Recruiter Controls",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Ranking Chart",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Plain Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send + Role Buttons": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send + Student Buttons": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send + Candidate Menu": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Job Card": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Job Card + Apply": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send + After-Apply Buttons": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send + Posting Buttons": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send + Recruiter Controls": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Ranking Chart": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Plain Text": {
+      "main": [
+        [
+          {
+            "node": "Send One at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Test": {
+      "main": [
+        [
+          {
+            "node": "Fake Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fake Update": {
+      "main": [
+        [
+          {
+            "node": "Normalize Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "8y9qe5N7C2bieCGO",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "2b8edcd0-7f76-4b45-9f75-2630a616699d",
+  "activeVersionId": null,
+  "versionCounter": 6,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-10-22T09:12:14.010Z",
+      "createdAt": "2026-10-22T09:12:14.010Z",
+      "role": "workflow:owner",
+      "workflowId": "c9TQ0w5cfqY11MI3",
+      "projectId": "IaGmLWrL5h0W1qhm",
+      "project": {
+        "updatedAt": "2026-10-17T14:25:20.257Z",
+        "createdAt": "2026-10-17T14:24:14.707Z",
+        "id": "IaGmLWrL5h0W1qhm",
+        "name": "Fabrice Afopa <fabrice.afopa@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "6884e4df-c687-43b2-b1a6-7ee6631d2312"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
