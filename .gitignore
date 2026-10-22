@@ -1,0 +1,23 @@
+# Secrets: the real .env is never committed (copy .env.example to .env)
+.env
+.env.*
+!.env.example
+
+# Docker volume data and backups (live in named volumes / outside the repo)
+n8n_data/
+postgres_data/
+.n8n/
+backups/
+Backups/
+*.tgz
+*.tar.gz
+
+# Raw exports and temporary files
+*.tmp.json
+export-raw/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
