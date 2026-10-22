@@ -37,6 +37,15 @@ flowchart LR
 The full diagram, with the data on every arrow, the diagram level and the cut line, is in
 [docs/architecture.md](docs/architecture.md). Every node is explained in [docs/workflows.md](docs/workflows.md).
 
+
+## APIs and services used
+- Telegram Bot API (stored credential): receives messages and button taps, sends replies
+- OpenRouter API (stored credential): AI explanation in workflow 06
+- Greenhouse public job-board API (HTTP request, no key): live listings in workflow 09
+- QuickChart: recruiter ranking chart image
+- Internal API: workflow 01 webhook serves the demo data as JSON
+- ngrok is not an API: it is the HTTPS tunnel that lets Telegram reach the local n8n
+
 ## Repository layout
 
 | Path | Content |
