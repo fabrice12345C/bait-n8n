@@ -1,0 +1,47 @@
+# BAIT n8n project: n8n + an isolated Postgres project database.
+# - n8n keeps its own internal data (workflows, credentials, executions) in the n8n_data volume.
+# - Postgres stores the project's results (saved internship recommendations).
+# - Versions are pinned (no :latest), secrets come from .env (see .env.example).
+name: baitn8nproject
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bait_demo}
+      POSTGRES_USER: ${POSTGRES_USER:-bait_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro   # schema, runs once on an empty volume
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No ports published: only n8n (same Docker network) can reach the database.
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.43.7
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy   # n8n starts only once the database answers
+    ports:
+      - "127.0.0.1:5678:5678"        # editor reachable from this PC only; Telegram comes in via ngrok
+    environment:
+      - GENERIC_TIMEZONE=Europe/Paris
+      - TZ=Europe/Paris
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-}
+      - N8N_PROXY_HOPS=1
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/import/workflows:ro   # lets a fresh clone import the committed workflows
+
+volumes:
+  n8n_data:
+  postgres_data:
